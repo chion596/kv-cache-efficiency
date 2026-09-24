@@ -37,3 +37,61 @@ DynamicCache и StaticCache дают идентичный и воспроизв�
 
 До завершения этих проверок performance-результаты Offloaded Cache
 не следует интерпретировать как корректное сравнение стратегий.
+
+## Результаты расширенной диагностики
+
+Проведено по 5 повторных greedy-запусков для нескольких длин контекста.
+
+### SDPA
+
+До context=1536:
+
+- DynamicCache стабилен;
+- Offloaded Cache стабилен;
+- Offloaded Static Cache стабилен;
+- все outputs совпадают.
+
+При context=2048:
+
+- DynamicCache остаётся детерминированным;
+- Offloaded Cache: 5 различных outputs из 5 запусков;
+- Offloaded Static Cache также становится нестабильным.
+
+При context=4096:
+
+- обе offloaded-стратегии нестабильны во всех повторах.
+
+### Eager attention
+
+Проблема проявляется позже:
+
+- context <= 2048: offloading работает корректно;
+- context=4096: Offloaded Cache и Offloaded Static Cache становятся нестабильными.
+
+Это показывает, что порог возникновения проблемы зависит от attention backend.
+
+### CUDA_LAUNCH_BLOCKING=1
+
+При SDPA и принудительной синхронизации CUDA:
+
+- context=512 — корректно;
+- context=1024 — корректно;
+- context=1536 — корректно;
+- context=2048 — корректно;
+- context=4096 — корректно.
+
+Во всех случаях Offloaded Cache и Offloaded Static Cache дают тот же output,
+что и DynamicCache, во всех пяти повторах.
+
+## Предварительная интерпретация
+
+Результат указывает на проблему, связанную с асинхронным выполнением или
+синхронизацией при CPU↔GPU offloading.
+
+Это пока не доказывает конкретный race condition внутри Transformers:
+необходимо проверить другую версию Transformers и, при необходимости,
+другой GPU / PyTorch.
+
+Важно: CUDA_LAUNCH_BLOCKING=1 нельзя использовать как обычный performance
+benchmark, поскольку он намеренно меняет режим исполнения CUDA и способен
+существенно ухудшить производительность.
