@@ -95,3 +95,52 @@ DynamicCache и StaticCache дают идентичный и воспроизв�
 Важно: CUDA_LAUNCH_BLOCKING=1 нельзя использовать как обычный performance
 benchmark, поскольку он намеренно меняет режим исполнения CUDA и способен
 существенно ухудшить производительность.
+
+## Проверка на Transformers main
+
+Дополнительно проведена проверка на development-версии Transformers:
+
+- Transformers: 5.18.0.dev0
+- commit: 5e4d6304de5536bc808187e5951f5e8794211229
+- PyTorch: 2.14.0+cu126
+- CUDA runtime PyTorch: 12.6
+- GPU: NVIDIA Tesla V100-SXM2 32 GB
+- attention backend: SDPA
+- остальные параметры эксперимента сохранены.
+
+### Результаты
+
+При context=1536:
+
+- DynamicCache стабилен;
+- Offloaded Cache стабилен;
+- Offloaded Static Cache стабилен;
+- outputs совпадают.
+
+При context=2048:
+
+- все три стратегии дают одинаковый output;
+- каждый вариант воспроизводим во всех 5 повторах.
+
+При context=4096:
+
+- DynamicCache остаётся детерминированным;
+- Offloaded Cache даёт 5 различных outputs из 5 запусков;
+- Offloaded Static Cache даёт 5 различных outputs из 5 запусков;
+- offloaded outputs не совпадают с DynamicCache.
+
+### Интерпретация
+
+Переход с Transformers 5.17.0 на протестированный commit main
+не устраняет проблему полностью.
+
+На протестированных точках проблема при SDPA перестала проявляться
+на context=2048, но сохраняется на context=4096.
+
+Это не следует интерпретировать как точный фиксированный порог:
+при вероятной проблеме синхронизации момент возникновения ошибки
+может зависеть от timing, версии библиотек, attention backend и GPU.
+
+Ранее CUDA_LAUNCH_BLOCKING=1 полностью устранял расхождение вплоть
+до context=4096, что является дополнительным свидетельством связи
+проблемы с асинхронным выполнением.
