@@ -48,12 +48,14 @@
 - peak reserved GPU memory;
 - использование CPU RAM.
 
-В дальнейшем необходимо отдельно измерять:
+В основной версии benchmark отдельно измеряются:
 
 - время prefill;
 - TTFT (Time To First Token);
 - decode throughput;
-- TPOT (Time Per Output Token).
+- TPOT (Time Per Output Token);
+- теоретический размер KV Cache;
+- фактически выделенная память KV Cache на GPU и CPU.
 
 ## Контролируемые параметры
 
