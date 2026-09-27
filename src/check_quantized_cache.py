@@ -63,10 +63,10 @@ def run(
     elif mode == "int4":
         cache_implementation = "quantized"
         cache_config = {
-            "backend": "quanto",
+            "backend": "hqq",
             "nbits": 4,
-            "axis_key": 0,
-            "axis_value": 0,
+            "axis_key": 1,
+            "axis_value": 1,
             "q_group_size": 64,
             "residual_length": 128,
         }
@@ -74,10 +74,10 @@ def run(
     elif mode == "int2":
         cache_implementation = "quantized"
         cache_config = {
-            "backend": "quanto",
+            "backend": "hqq",
             "nbits": 2,
-            "axis_key": 0,
-            "axis_value": 0,
+            "axis_key": 1,
+            "axis_value": 1,
             "q_group_size": 64,
             "residual_length": 128,
         }

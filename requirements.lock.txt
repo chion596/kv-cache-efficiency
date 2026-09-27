@@ -8,11 +8,13 @@ cuda-bindings==12.9.7
 cuda-pathfinder==1.8.2
 cuda-toolkit==12.6.3
 cycler==0.12.1
+einops==0.8.2
 filelock==4.0.3
 fonttools==4.66.0
 fsspec==2026.9.0
 h11==0.16.0
 hf-xet==1.6.0
+hqq==0.2.8.post1
 httpcore==1.0.9
 httpx==0.28.1
 huggingface_hub==1.33.0
@@ -72,6 +74,7 @@ safetensors==0.8.0
 shellingham==1.5.4
 six==1.17.0
 sympy==1.14.0
+termcolor==3.3.0
 tokenizers==0.23.2
 torch==2.14.0+cu126
 tqdm==4.70.1
