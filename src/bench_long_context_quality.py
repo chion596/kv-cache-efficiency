@@ -19,32 +19,41 @@ from transformers import (
 )
 
 
-def make_cache(model, cache_impl):
+def make_cache(
+    model,
+    cache_impl,
+    q_group_size,
+    residual_length,
+):
     if cache_impl == "dynamic":
         return DynamicCache(
             config=model.config,
         )
 
-    if cache_impl == "int4":
-        return QuantizedCache(
-            backend="hqq",
-            config=model.config,
-            nbits=4,
-            axis_key=1,
-            axis_value=1,
-            q_group_size=64,
-            residual_length=128,
+    if cache_impl.startswith("int"):
+        nbits = int(
+            cache_impl[3:]
         )
 
-    if cache_impl == "int2":
+        if nbits not in {
+            1,
+            2,
+            3,
+            4,
+            8,
+        }:
+            raise ValueError(
+                f"Unsupported HQQ nbits: {nbits}"
+            )
+
         return QuantizedCache(
             backend="hqq",
             config=model.config,
-            nbits=2,
+            nbits=nbits,
             axis_key=1,
             axis_value=1,
-            q_group_size=64,
-            residual_length=128,
+            q_group_size=q_group_size,
+            residual_length=residual_length,
         )
 
     raise ValueError(
@@ -310,11 +319,14 @@ def greedy_generate(
     tokenizer,
     prompt_ids,
     cache_impl,
+    q_group_size,
+    residual_length,
     max_new_tokens,
 ):
-    device = next(
-        model.parameters()
-    ).device
+    device = (
+        model.get_input_embeddings()
+        .weight.device
+    )
 
     input_ids = torch.tensor(
         [prompt_ids],
@@ -331,6 +343,8 @@ def greedy_generate(
     cache = make_cache(
         model,
         cache_impl,
+        q_group_size=q_group_size,
+        residual_length=residual_length,
     )
 
     cache_position = torch.arange(
@@ -447,6 +461,8 @@ def teacher_forced_score(
     prompt_ids,
     target_ids,
     cache_impl,
+    q_group_size,
+    residual_length,
 ):
     """
     Считает log-probability правильного ответа.
@@ -456,9 +472,10 @@ def teacher_forced_score(
     KV cache при decode, поэтому отдельно считаем decode-only
     метрики.
     """
-    device = next(
-        model.parameters()
-    ).device
+    device = (
+        model.get_input_embeddings()
+        .weight.device
+    )
 
     input_ids = torch.tensor(
         [prompt_ids],
@@ -475,6 +492,8 @@ def teacher_forced_score(
     cache = make_cache(
         model,
         cache_impl,
+        q_group_size=q_group_size,
+        residual_length=residual_length,
     )
 
     cache_position = torch.arange(
@@ -682,6 +701,29 @@ def main():
     )
 
     parser.add_argument(
+        "--q-group-size",
+        type=int,
+        default=64,
+    )
+
+    parser.add_argument(
+        "--residual-length",
+        type=int,
+        default=128,
+    )
+
+    parser.add_argument(
+        "--device-map",
+        choices=[
+            "auto",
+            "balanced",
+            "balanced_low_0",
+            "sequential",
+        ],
+        default=None,
+    )
+
+    parser.add_argument(
         "--num-seeds",
         type=int,
         default=10,
@@ -715,15 +757,32 @@ def main():
         )
     )
 
-    model = (
-        AutoModelForCausalLM
-        .from_pretrained(
-            args.model,
-            dtype=torch.float16,
-            local_files_only=True,
+    load_kwargs = {
+        "dtype": torch.float16,
+        "local_files_only": True,
+    }
+
+    if args.device_map is not None:
+        load_kwargs[
+            "device_map"
+        ] = args.device_map
+
+        model = (
+            AutoModelForCausalLM
+            .from_pretrained(
+                args.model,
+                **load_kwargs,
+            )
         )
-        .to("cuda")
-    )
+    else:
+        model = (
+            AutoModelForCausalLM
+            .from_pretrained(
+                args.model,
+                **load_kwargs,
+            )
+            .to("cuda")
+        )
 
     model.eval()
 
@@ -742,6 +801,19 @@ def main():
     print("Contexts:", args.contexts)
     print("Positions:", args.positions)
     print("Caches:", args.caches)
+    print("Q group size:", args.q_group_size)
+    print("Residual length:", args.residual_length)
+    print("Device map:", args.device_map)
+
+    if hasattr(
+        model,
+        "hf_device_map",
+    ):
+        print(
+            "HF device map:",
+            model.hf_device_map,
+        )
+
     print("Seeds:", args.num_seeds)
     print("=" * 72)
 
@@ -779,6 +851,8 @@ def main():
     fields = [
         "model",
         "cache",
+        "q_group_size",
+        "residual_length",
         "context_len",
         "position",
         "seed",
@@ -871,6 +945,12 @@ def main():
                                         "prompt_ids"
                                     ],
                                     cache_impl=cache_impl,
+                                    q_group_size=(
+                                        args.q_group_size
+                                    ),
+                                    residual_length=(
+                                        args.residual_length
+                                    ),
                                     max_new_tokens=(
                                         args.max_new_tokens
                                     ),
@@ -908,6 +988,12 @@ def main():
                                     cache_impl=(
                                         cache_impl
                                     ),
+                                    q_group_size=(
+                                        args.q_group_size
+                                    ),
+                                    residual_length=(
+                                        args.residual_length
+                                    ),
                                 )
                             )
 
@@ -922,6 +1008,12 @@ def main():
 
                                 "cache":
                                     cache_impl,
+
+                                "q_group_size":
+                                    args.q_group_size,
+
+                                "residual_length":
+                                    args.residual_length,
 
                                 "context_len":
                                     context_len,
@@ -998,6 +1090,12 @@ def main():
 
                                 "cache":
                                     cache_impl,
+
+                                "q_group_size":
+                                    args.q_group_size,
+
+                                "residual_length":
+                                    args.residual_length,
 
                                 "context_len":
                                     context_len,
