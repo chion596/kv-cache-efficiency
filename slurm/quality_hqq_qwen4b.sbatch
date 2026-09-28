@@ -1,0 +1,71 @@
+#!/bin/bash
+
+#SBATCH --job-name=kv-quality-4b
+#SBATCH --partition=rocky
+#SBATCH --account=proj_1782
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gpus=1
+#SBATCH --constraint=type_a
+
+#SBATCH --time=03:00:00
+
+#SBATCH --output=/home/nashilovskiy/kv-cache-research/logs/%x-%j.out
+#SBATCH --error=/home/nashilovskiy/kv-cache-research/logs/%x-%j.err
+
+set -euo pipefail
+
+module purge
+module load python
+conda activate kvcache
+
+source /home/nashilovskiy/kv-cache-research/env.sh
+cd /home/nashilovskiy/kv-cache-research
+
+echo "========================================"
+echo "QWEN3-4B LONG-CONTEXT QUALITY"
+echo "JOB ID: $SLURM_JOB_ID"
+echo "NODE: $(hostname)"
+echo "DATE: $(date)"
+echo "GIT COMMIT: ${GIT_COMMIT:-unknown}"
+echo "========================================"
+
+python - <<'PY'
+import torch
+import transformers
+import hqq
+
+print("torch:", torch.__version__)
+print("CUDA:", torch.version.cuda)
+print("transformers:", transformers.__version__)
+print("GPU:", torch.cuda.get_device_name(0))
+print("GPU capability:", torch.cuda.get_device_capability(0))
+print(
+    "hqq:",
+    getattr(hqq, "__version__", "unknown"),
+)
+PY
+
+python -u src/bench_long_context_quality.py \
+    --model "$KV_SCRATCH/models/Qwen3-4B" \
+    --contexts \
+        8192 \
+        16384 \
+        32768 \
+    --positions \
+        0.1 \
+        0.5 \
+        0.9 \
+    --caches \
+        dynamic \
+        int4 \
+        int2 \
+    --num-seeds 5 \
+    --max-new-tokens 16 \
+    --out "results/raw/quality_hqq_qwen3_4b_${SLURM_JOB_ID}.csv"
+
+echo "========================================"
+echo "FINISHED: $(date)"
+echo "========================================"
