@@ -3,7 +3,7 @@ import traceback
 
 import torch
 
-from hqq.core.quantize import HQQQuantizer
+from hqq.core.quantize import Quantizer as HQQQuantizer
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
