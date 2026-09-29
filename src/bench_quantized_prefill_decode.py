@@ -52,7 +52,13 @@ def make_input(tokenizer, context_len, device):
     }
 
 
-def make_cache(model, cache_impl, max_cache_len):
+def make_cache(
+    model,
+    cache_impl,
+    max_cache_len,
+    q_group_size=64,
+    residual_length=128,
+):
     """Создаёт KV cache нужного типа."""
 
     if cache_impl == "dynamic":
@@ -60,26 +66,17 @@ def make_cache(model, cache_impl, max_cache_len):
             config=model.config,
         )
 
-    if cache_impl == "int4":
-        return QuantizedCache(
-            backend="hqq",
-            config=model.config,
-            nbits=4,
-            axis_key=1,
-            axis_value=1,
-            q_group_size=64,
-            residual_length=128,
-        )
+    if cache_impl.startswith("int"):
+        nbits = int(cache_impl[3:])
 
-    if cache_impl == "int2":
         return QuantizedCache(
             backend="hqq",
             config=model.config,
-            nbits=2,
+            nbits=nbits,
             axis_key=1,
             axis_value=1,
-            q_group_size=64,
-            residual_length=128,
+            q_group_size=q_group_size,
+            residual_length=residual_length,
         )
 
     raise ValueError(
@@ -272,6 +269,8 @@ def measure_once(
     new_tokens,
     max_cache_len,
     model_memory_gib,
+    q_group_size,
+    residual_length,
 ):
     context_len = inputs["input_ids"].shape[-1]
     device = inputs["input_ids"].device
@@ -285,6 +284,8 @@ def measure_once(
         model,
         cache_impl,
         max_cache_len=max_cache_len,
+        q_group_size=q_group_size,
+        residual_length=residual_length,
     )
 
     attention_mask = inputs["attention_mask"].clone()
@@ -571,6 +572,18 @@ def main():
     )
 
     parser.add_argument(
+        "--q-group-size",
+        type=int,
+        default=64,
+    )
+
+    parser.add_argument(
+        "--residual-length",
+        type=int,
+        default=128,
+    )
+
+    parser.add_argument(
         "--new-tokens",
         type=int,
         default=64,
@@ -635,6 +648,8 @@ def main():
     print("Model memory:", f"{model_memory_gib:.3f} GiB")
     print("Contexts:", args.contexts)
     print("Caches:", args.caches)
+    print("Q group size:", args.q_group_size)
+    print("Residual length:", args.residual_length)
     print("Repeats:", args.repeats)
     print("New tokens:", args.new_tokens)
 
@@ -770,6 +785,8 @@ def main():
                         ),
                         max_cache_len=max_cache_len,
                         model_memory_gib=model_memory_gib,
+                        q_group_size=args.q_group_size,
+                        residual_length=args.residual_length,
                     )
 
                 except Exception as exc:
@@ -817,6 +834,8 @@ def main():
                             new_tokens=args.new_tokens,
                             max_cache_len=max_cache_len,
                             model_memory_gib=model_memory_gib,
+                            q_group_size=args.q_group_size,
+                            residual_length=args.residual_length,
                         )
 
                         row = {
