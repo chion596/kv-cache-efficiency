@@ -71,7 +71,7 @@ residual_length = 128
 
 Финальный Qwen3-1.7B ablation имеет `3` повтора на каждую пару context/configuration; в model-scaling performance для 0.6B используется `5` повторов, для 1.7B–8B — `3`. В итоговых таблицах сохраняются mean и sample standard deviation.
 
-Attention implementation явно не фиксируется; используется реализация, автоматически выбранная текущим Transformers/PyTorch stack.
+`attn_implementation` явно не задаётся. В проверенной основной конфигурации Qwen3-1.7B на V100 Transformers 5.17.0 выбрал SDPA (`model.config._attn_implementation = "sdpa"`).
 
 ### Quality benchmark
 
@@ -87,7 +87,7 @@ Prompts формируются как raw text/raw token sequence: `apply_chat_t
 - teacher-forced top-1 для decode tokens;
 - teacher-forced NLL.
 
-Размер выборки: 0.6B — `n=90`; 1.7B/4B/8B/14B — `n=45`; group-size ablation — `n=45` на конфигурацию; short-context control — `n=30` на cache/context.
+Размер выборки: 0.6B — `n=90`; 1.7B/4B/8B/14B — `n=45`; group-size ablation — `n=45` на конфигурацию; short-context control — `n=30` на cache/context. Разница в model-size experiment следует из конфигурации запусков: для исходного 0.6B benchmark использовалось 10 seeds, а для последующего model-size sweep — 5; при 3 контекстах и 3 позициях это даёт соответственно `3×3×10=90` и `3×3×5=45` задач на cache.
 
 Для exact-match в финальном анализе рассчитаны 95% интервалы Уилсона; на quality-графиках они показаны как error bars.
 
@@ -215,7 +215,6 @@ HQQ 0.2.8.post1 создавал INT3 quantized tensors, но используе
 - Основные результаты относятся к HQQ QuantizedCache в Transformers 5.17.0 с `axis_key=1`, `axis_value=1`; они не описывают все алгоритмы KV-cache quantization.
 - Performance измерен на V100, batch size 1. Другие GPU и специализированные kernels могут дать другой latency profile.
 - Qwen3-14B проверялась только по качеству на двух V100.
-- `attn_implementation` явно не фиксировалась в benchmark.
 - Wilson intervals здесь описывают binomial uncertainty внутри benchmark trials; они не доказывают перенос результата на другие задачи и модели.
 
 ## Выводы

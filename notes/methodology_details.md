@@ -58,6 +58,8 @@ Qwen3-8B:   n=45
 Qwen3-14B:  n=45
 ```
 
+Разница определяется числом seeds в исходных запусках: для Qwen3-0.6B использовалось 10 seeds, а для последующего model-size sweep — 5. При 3 контекстах и 3 позициях это даёт соответственно `3×3×10=90` и `3×3×5=45` задач на cache.
+
 Group-size ablation:
 
 ```text
@@ -161,9 +163,14 @@ INT8 используется как reference при `q_group_size=64`.
 
 ## Attention implementation
 
-`attn_implementation` явно не задаётся. Используется реализация, выбранная Transformers/PyTorch для данного software/hardware stack.
+`attn_implementation` явно не задаётся. В проверенной основной конфигурации Qwen3-1.7B на NVIDIA V100-SXM2 32 GB, PyTorch 2.14.0+cu126 и Transformers 5.17.0 фактически выбрана SDPA:
 
-Поэтому отчёт не приписывает результаты конкретному attention backend, если он не был отдельно зафиксирован в диагностическом эксперименте.
+```text
+model.config._attn_implementation = "sdpa"
+model.config._attn_implementation_internal = "sdpa"
+```
+
+Это значение проверено после загрузки модели тем же `AutoModelForCausalLM.from_pretrained(...)` path, который используется в benchmark.
 
 ## Canonical final output
 
