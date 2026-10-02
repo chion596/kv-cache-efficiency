@@ -2,7 +2,7 @@
 
 ## Hugging Face QuantizedCache
 
-Основные эксперименты используют `QuantizedCache` из Transformers 5.17.0 с HQQ backend:
+Основные эксперименты используют `QuantizedCache` из Transformers 5.17.0 с HQQ backend. Для описания cache API и рекомендуемых параметров используется документация именно этой версии: [Transformers 5.17.0 — Cache strategies](https://huggingface.co/docs/transformers/v5.17.0/kv_cache).
 
 ```text
 backend = hqq
@@ -28,7 +28,7 @@ residual_length = 128
 
 ## KIVI
 
-KIVI предлагает tuning-free low-bit KV-cache quantization и использует разные схемы для Keys и Values:
+[KIVI](https://arxiv.org/abs/2402.02750) предлагает tuning-free low-bit KV-cache quantization и использует разные схемы для Keys и Values:
 
 - Keys — per-channel;
 - Values — per-token.
@@ -83,11 +83,11 @@ INT2 g64 -> 6.40x
 
 ### H2O
 
-H2O уменьшает KV Cache выбором части наиболее важных токенов. Это другой класс методов: уменьшается число хранимых состояний, а не точность каждого K/V.
+[H2O](https://arxiv.org/abs/2306.14048) уменьшает KV Cache выбором части наиболее важных токенов. Это другой класс методов: уменьшается число хранимых состояний, а не точность каждого K/V.
 
 ### SnapKV
 
-SnapKV также уменьшает число сохраняемых позиций на основе attention-паттернов. В текущих экспериментах H2O и SnapKV не реализуются и используются только как related work.
+[SnapKV](https://arxiv.org/abs/2404.14469) также уменьшает число сохраняемых позиций на основе attention-паттернов. В текущих экспериментах H2O и SnapKV не реализуются и используются только как related work.
 
 ## Что получено в этой работе
 
@@ -101,3 +101,10 @@ SnapKV также уменьшает число сохраняемых пози�
 - диагностика Offloaded Cache, INT3 и Quanto.
 
 Связь с литературой используется для интерпретации и постановки будущих экспериментов, а не как доказательство механизма наблюдаемых эффектов.
+
+## Источники
+
+1. Hugging Face. *Transformers v5.17.0 — Cache strategies*. [Documentation](https://huggingface.co/docs/transformers/v5.17.0/kv_cache).
+2. Zirui Liu, Jiayi Yuan, Hongye Jin, Shaochen Zhong, Zhaozhuo Xu, Vladimir Braverman, Beidi Chen, Xia Hu. *KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache*. arXiv:2402.02750, 2024. [arXiv](https://arxiv.org/abs/2402.02750).
+3. Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong Chen, Lianmin Zheng, Ruisi Cai, Zhao Song, Yuandong Tian, Christopher Ré, Clark Barrett, Zhangyang Wang, Beidi Chen. *H2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models*. arXiv:2306.14048, 2023. [arXiv](https://arxiv.org/abs/2306.14048).
+4. Yuhong Li, Yingbing Huang, Bowen Yang, Bharat Venkitesh, Acyr Locatelli, Hanchen Ye, Tianle Cai, Patrick Lewis, Deming Chen. *SnapKV: LLM Knows What You are Looking for Before Generation*. arXiv:2404.14469, 2024. [arXiv](https://arxiv.org/abs/2404.14469).

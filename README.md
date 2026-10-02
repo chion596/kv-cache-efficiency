@@ -34,7 +34,7 @@ residual_length = 128
 
 Для сравнения моделей используется `q_group_size=64`; на Qwen3-1.7B дополнительно проверяются `g16`, `g32`, `g64`, `g128`.
 
-Для HQQ backend [документация Transformers](https://huggingface.co/docs/transformers/kv_cache) рекомендует `axis_key=1` и `axis_value=1`; эта конфигурация и используется в работе.
+Для HQQ backend [документация Transformers](https://huggingface.co/docs/transformers/v5.17.0/kv_cache) рекомендует `axis_key=1` и `axis_value=1`; эта конфигурация и используется в работе.
 
 Работа **не является воспроизведением [KIVI](https://arxiv.org/abs/2402.02750)**. KIVI мотивирует разные схемы квантизации для Keys и Values из-за различий их распределений, тогда как здесь исследуется stock HQQ QuantizedCache. Наблюдения KIVI полезны как мотивация дальнейших ablation, но текущие эксперименты не устанавливают механизм зависимости качества от `q_group_size`.
 
