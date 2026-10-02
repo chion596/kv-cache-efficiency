@@ -1,60 +1,54 @@
-# Результаты pilot-эксперимента
+# Pilot: Dynamic, Static и Offloaded Cache
+
+> Исторический pilot. Для финальных выводов используются более поздние benchmark и canonical таблицы из `results/summary/final/`.
 
 ## Конфигурация
 
-- модель: Qwen3-0.6B
-- GPU: NVIDIA Tesla V100-SXM2 32 GB
-- dtype: FP16
-- output: 32 токена
-- повторы: 1 после warm-up
-- контексты: 512, 2048, 8192
-- стратегии:
-  - DynamicCache
-  - StaticCache
-  - Offloaded Cache
+```text
+Model: Qwen3-0.6B
+GPU: NVIDIA Tesla V100-SXM2 32 GB
+dtype: FP16
+Output: 32 tokens
+Repeats: 1 after warm-up
+Contexts: 512, 2048, 8192
+```
 
-## Предварительные наблюдения
+Сравнивались:
 
-### DynamicCache
+- DynamicCache;
+- StaticCache;
+- Offloaded Cache.
 
-Показал наибольшую скорость среди рассмотренных стратегий.
+## Наблюдения
 
-С увеличением контекста растёт потребление GPU-памяти:
+DynamicCache был самым быстрым из трёх режимов.
 
-- 512: 1.205 GB
-- 2048: 1.389 GB
-- 8192: 2.201 GB
+Peak GPU memory DynamicCache:
 
-### StaticCache
+| Context | Memory |
+|---:|---:|
+| 512 | 1.205 GB |
+| 2048 | 1.389 GB |
+| 8192 | 2.201 GB |
 
-При отключённой compilation показывает близкое к DynamicCache
-потребление памяти, но несколько меньшую производительность.
+StaticCache без compilation имел близкое memory footprint, но более низкую скорость.
 
-StaticCache с compilation необходимо проверить отдельно.
+Offloaded Cache при 8192 токенах уменьшил GPU memory:
 
-### Offloaded Cache
+```text
+Dynamic:   2.201 GB
+Offloaded: 1.357 GB
+```
 
-Существенно уменьшает потребление GPU-памяти при длинном контексте.
+но снизил throughput:
 
-Для context=8192:
-
-- DynamicCache: 2.201 GB
-- Offloaded Cache: 1.357 GB
-
-При этом скорость падает:
-
-- DynamicCache: 21.949 tok/s
-- Offloaded Cache: 6.857 tok/s
-
-Таким образом, на длинном контексте наблюдается выраженный компромисс
-между использованием GPU-памяти и производительностью.
+```text
+Dynamic:   21.949 tok/s
+Offloaded:  6.857 tok/s
+```
 
 ## Ограничения
 
-Эксперимент является pilot-запуском.
+Pilot содержит только один measured run на конфигурацию и использует время, в котором prefill и decode ещё не разделены.
 
-Для каждой конфигурации было выполнено только одно измерение после warm-up,
-поэтому пока нельзя оценить дисперсию результатов.
-
-Кроме того, измеряемое время объединяет prefill и decode. В следующей версии
-benchmark эти этапы необходимо измерять отдельно.
+Поэтому числа этого файла не используются как финальный performance result. Его роль — подтвердить работоспособность benchmark pipeline и обозначить memory/latency trade-off для дальнейшей проверки.

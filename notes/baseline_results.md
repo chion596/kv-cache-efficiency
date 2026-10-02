@@ -1,85 +1,54 @@
-# Результаты baseline: DynamicCache и StaticCache
+# Baseline: DynamicCache и StaticCache
+
+> Исторический baseline на Qwen3-0.6B. Более плотный long-context sweep находится в `long_context_results.md`.
 
 ## Конфигурация
 
-- модель: Qwen3-0.6B;
-- GPU: NVIDIA Tesla V100-SXM2 32 GB;
-- dtype: FP16;
-- PyTorch: 2.14.0+cu126;
-- Transformers: 5.17.0;
-- длины контекста: 512, 1024, 2048, 4096, 8192, 16384;
-- output: 64 токена;
-- 5 измерений после warm-up;
-- compilation отключена.
+```text
+GPU: NVIDIA Tesla V100-SXM2 32 GB
+Model: Qwen3-0.6B
+dtype: FP16
+PyTorch: 2.14.0+cu126
+Transformers: 5.17.0
+Output: 64 tokens
+Repeats: 5 after warm-up
+Compilation: off
+```
 
-Измеряются отдельно:
+Контексты:
 
-- prefill;
-- TTFT;
-- decode throughput;
-- TPOT;
-- peak GPU memory;
-- теоретический размер KV Cache;
-- фактически выделенная память под KV Cache;
-- checksum выходных токенов.
+```text
+512, 1024, 2048, 4096, 8192, 16384
+```
 
-## DynamicCache
+## Decode throughput
 
-До context=8192 decode throughput практически не меняется:
+| Context | Dynamic | Static |
+|---:|---:|---:|
+| 512 | 31.20 | 27.05 |
+| 1024 | 31.42 | 26.92 |
+| 2048 | 31.28 | 26.87 |
+| 4096 | 31.30 | 26.89 |
+| 8192 | 31.28 | 26.91 |
+| 16384 | 22.53 | 18.03 |
 
-- 512: 31.20 tok/s;
-- 1024: 31.42 tok/s;
-- 2048: 31.28 tok/s;
-- 4096: 31.30 tok/s;
-- 8192: 31.28 tok/s.
+До 8192 токенов DynamicCache держится около 31 tok/s. На 16384 throughput заметно падает.
 
-При context=16384 скорость снижается до 22.53 tok/s.
+StaticCache без compilation медленнее DynamicCache примерно на 13–14% до 8192 и примерно на 20% при 16384.
 
-Таким образом, между 8192 и 16384 токенами наблюдается заметное
-ухудшение decode performance, которое необходимо исследовать более
-плотной сеткой длин контекста.
+## Memory и корректность
 
-## StaticCache
+StaticCache не дал экономии peak GPU memory относительно DynamicCache.
 
-Без compilation StaticCache показывает более низкий decode throughput:
+Для DynamicCache фактический FP16 KV storage практически совпал с теоретической оценкой.
 
-- 512: 27.05 tok/s;
-- 1024: 26.92 tok/s;
-- 2048: 26.87 tok/s;
-- 4096: 26.89 tok/s;
-- 8192: 26.91 tok/s;
-- 16384: 18.03 tok/s.
+Все пять повторов каждой конфигурации были воспроизводимы по output hash; Dynamic и Static также совпадали между собой.
 
-До 8192 StaticCache медленнее DynamicCache приблизительно на 13-14%.
-При 16384 разница увеличивается примерно до 20%.
+## Что дал baseline
 
-Этот результат относится только к StaticCache без compilation.
-StaticCache с torch.compile необходимо исследовать отдельно.
+Baseline показал две вещи:
 
-## Память
+1. StaticCache без compilation не улучшает performance/memory в этой конфигурации.
+2. Для локализации начала long-context slowdown нужна более плотная сетка между 8K и 16K.
 
-StaticCache не даёт экономии peak GPU memory относительно DynamicCache.
-В исследованных конфигурациях его peak allocated memory немного выше.
-
-Для DynamicCache фактически выделенный объём KV Cache практически
-точно совпадает с теоретической оценкой FP16 KV Cache.
-
-Это подтверждает линейную зависимость размера KV Cache от длины
-последовательности в исследуемой конфигурации.
-
-## Воспроизводимость
-
-Для каждой пары стратегия/длина контекста выполнено 5 повторов.
-
-Разброс основных performance-метрик мал.
-
-Для DynamicCache и StaticCache во всех исследованных конфигурациях
-output hash одинаков между повторами и между стратегиями.
-
-## Основной следующий вопрос
-
-Необходимо подробнее исследовать диапазон между 8192 и 16384 токенами,
-где впервые появляется выраженное падение decode throughput.
-
-После этого эксперимент следует продолжить до нативного предела
-контекста модели.
+Эта проверка была выполнена следующим long-context sweep.
