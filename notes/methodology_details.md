@@ -51,14 +51,14 @@ Teacher-forced decode metrics оценивают последующие target t
 Model-size experiment:
 
 ```text
-Qwen3-0.6B: n=90
+Qwen3-0.6B: n=45
 Qwen3-1.7B: n=45
 Qwen3-4B:   n=45
 Qwen3-8B:   n=45
 Qwen3-14B:  n=45
 ```
 
-Разница определяется числом seeds в исходных запусках: для Qwen3-0.6B использовалось 10 seeds, а для последующего model-size sweep — 5. При 3 контекстах и 3 позициях это даёт соответственно `3×3×10=90` и `3×3×5=45` задач на cache.
+Для основного cross-model comparison используется общий набор задач: 3 контекста × 3 позиции × seeds `0–4`. Исходный запуск Qwen3-0.6B содержит также seeds `5–9`, но эти дополнительные 45 задач не входят в RQ2 comparison. Полный 0.6B результат (`n=90`) сохраняется отдельно в `notes/quality_hqq_results.md`.
 
 Group-size ablation:
 

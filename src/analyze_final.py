@@ -194,9 +194,57 @@ QUALITY_FILES = {
 
 quality_rows = []
 
+# RQ2 compares models on exactly the same task instances.
+# Qwen3-0.6B was originally run with seeds 0..9, while the
+# other model sizes were run with seeds 0..4. For the main
+# cross-model comparison we therefore use their common subset:
+# 3 contexts x 3 positions x 5 seeds = 45 tasks per cache.
+MODEL_SCALING_SEEDS = set(range(5))
+reference_tasks = None
+
 for model_size, path in QUALITY_FILES.items():
 
     df = load_good(path)
+
+    df = df[
+        df["seed"].isin(MODEL_SCALING_SEEDS)
+    ].copy()
+
+    task_columns = [
+        "context_len",
+        "position",
+        "seed",
+        "passkey",
+        "needle_start_token",
+        "target_token_count",
+    ]
+
+    tasks = (
+        df[task_columns]
+        .drop_duplicates()
+        .sort_values(
+            [
+                "context_len",
+                "position",
+                "seed",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+    if len(tasks) != 45:
+        raise RuntimeError(
+            f"{model_size}: expected 45 shared quality tasks, "
+            f"found {len(tasks)}"
+        )
+
+    if reference_tasks is None:
+        reference_tasks = tasks
+    elif not tasks.equals(reference_tasks):
+        raise RuntimeError(
+            f"{model_size}: quality task set differs from "
+            "the shared model-scaling task set"
+        )
 
     for cache, group in df.groupby("cache"):
 

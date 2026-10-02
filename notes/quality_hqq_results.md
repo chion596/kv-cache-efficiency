@@ -2,6 +2,8 @@
 
 > Ранний quality experiment. Финальное model-size и group-size сравнение находится в корневом `README.md` и `results/summary/final/`.
 
+Этот файл сохраняет полный single-model запуск Qwen3-0.6B с seeds `0–9` (`n=90` на cache). В основном model-size comparison используются только общие для всех моделей seeds `0–4` (`n=45`), поэтому точка 0.6B в финальном cross-model графике отличается от агрегата этого файла.
+
 ## Постановка
 
 Controlled passkey retrieval:
