@@ -1142,6 +1142,7 @@ print(OUT / "group_size_quality.csv")
 print(OUT / "group_size_performance.csv")
 print(OUT / "short_context_control.csv")
 print(OUT / "memory_latency_tradeoff.csv")
+print(OUT / "qwen17_final_context_performance.csv")
 
 # ============================================================
 # FIGURE 1: QUALITY VS MODEL SIZE
@@ -1494,9 +1495,120 @@ plt.savefig(
 plt.close()
 
 
-performance17 = performance[
-    performance["model_size"] == "1.7B"
-].copy()
+# Для двух финальных графиков Qwen3-1.7B используем именно
+# final ablation raw-файлы, чтобы значения при 40895 совпадали
+# с canonical memory_latency_tradeoff.csv.
+
+FINAL_CONTEXT_FILES = [
+    (
+        "dynamic",
+        RAW / "final_perf_ablation_qwen3_1.7b_dynamic_4363381.csv",
+    ),
+    (
+        "int4",
+        RAW / "final_perf_ablation_qwen3_1.7b_int4_g64_4363381.csv",
+    ),
+    (
+        "int2",
+        RAW / "final_perf_ablation_qwen3_1.7b_int2_g64_4363381.csv",
+    ),
+]
+
+
+final_context_frames = []
+
+for cache, path in FINAL_CONTEXT_FILES:
+
+    df = load_good(
+        path
+    )
+
+    df["cache"] = cache
+
+    final_context_frames.append(
+        df
+    )
+
+
+performance17_raw = pd.concat(
+    final_context_frames,
+    ignore_index=True,
+)
+
+
+performance17 = (
+    performance17_raw
+    .groupby(
+        [
+            "cache",
+            "context_len",
+        ],
+        as_index=False,
+    )
+    .agg(
+        n=(
+            "repeat",
+            "count",
+        ),
+
+        peak_gpu_gib=(
+            "total_peak_allocated_gib",
+            "mean",
+        ),
+
+        peak_gpu_gib_std=(
+            "total_peak_allocated_gib",
+            "std",
+        ),
+
+        kv_gpu_gib=(
+            "cache_prompt_gpu_gib",
+            "mean",
+        ),
+
+        prefill_sec=(
+            "prefill_sec",
+            "mean",
+        ),
+
+        prefill_sec_std=(
+            "prefill_sec",
+            "std",
+        ),
+
+        decode_tok_s=(
+            "decode_tok_s",
+            "mean",
+        ),
+
+        decode_tok_s_std=(
+            "decode_tok_s",
+            "std",
+        ),
+
+        e2e_sec=(
+            "e2e_sec",
+            "mean",
+        ),
+
+        e2e_sec_std=(
+            "e2e_sec",
+            "std",
+        ),
+    )
+    .sort_values(
+        [
+            "context_len",
+            "cache",
+        ]
+    )
+)
+
+
+performance17.to_csv(
+    OUT / "qwen17_final_context_performance.csv",
+    index=False,
+)
 
 # ============================================================
 # FIGURE 4: GPU MEMORY VS CONTEXT
