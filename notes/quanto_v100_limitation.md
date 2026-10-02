@@ -1,44 +1,40 @@
-# Ограничение Quanto QuantizedCache на V100
+# Quanto QuantizedCache на V100
 
 ## Конфигурация
 
-- GPU: NVIDIA Tesla V100-SXM2 32 GB
-- compute capability: 7.0 (SM70)
-- PyTorch: 2.14.0+cu126
-- Transformers: 5.17.0
-- optimum-quanto: 0.2.7
+```text
+GPU: NVIDIA Tesla V100-SXM2 32 GB
+Compute capability: 7.0 (SM70)
+PyTorch: 2.14.0+cu126
+Transformers: 5.17.0
+optimum-quanto: 0.2.7
+```
 
-## Эксперимент
+Проверялся Transformers `QuantizedCache` с backend `quanto`.
 
-Проверялся `QuantizedCache` Transformers с backend `quanto`
-для INT4/INT2 KV Cache.
-
-DynamicCache успешно прошёл контрольный запуск.
-
-Первый INT4 запуск завершился на этапе JIT-сборки CUDA extension
-`quanto_cuda`.
+DynamicCache прошёл control run, но первый INT4 запуск остановился при JIT-компиляции CUDA extension `quanto_cuda`.
 
 ## Причина
 
-CUDA extension собирался с target `compute_70/sm_70`, соответствующим
-Tesla V100.
+Extension собирался под:
 
-При этом включённые в extension Marlin kernels используют инструкции,
-которые требуют более новых архитектур GPU, в частности SM80.
+```text
+compute_70 / sm_70
+```
 
-В результате `ptxas` завершил сборку с ошибками вида:
+но включённые Marlin kernels используют инструкции, требующие SM80 или новее.
 
-`Feature '.m16n8k16' requires .target sm_80 or higher`
+`ptxas` сообщил, в частности:
 
-и
-
-`Feature 'cp.async' requires .target sm_80 or higher`.
+```text
+Feature '.m16n8k16' requires .target sm_80 or higher
+Feature 'cp.async' requires .target sm_80 or higher
+```
 
 ## Вывод
 
-В текущей конфигурации кластера backend Quanto нельзя использовать
-для Quantized KV Cache на доступной V100 без модификации самого
-optimum-quanto.
+В протестированном software stack Quanto backend не удалось использовать для Quantized KV Cache на V100 без модификации `optimum-quanto`.
 
-Для дальнейшего эксперимента используется другой поддерживаемый
-Transformers backend — HQQ.
+Поэтому основной quantized-cache experiment был продолжен с HQQ backend.
+
+Этот результат описывает ограничение конкретного V100/software path и не является утверждением о Quanto на поддерживаемых новых GPU.

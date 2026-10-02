@@ -1,164 +1,103 @@
-# Проверка корректности Offloaded KV Cache
+# Offloaded KV Cache: проверка корректности
 
-## Окружение
+## Основная конфигурация
 
-- Model: Qwen3-0.6B
-- GPU: NVIDIA Tesla V100-SXM2 32 GB
-- PyTorch: 2.14.0+cu126
-- Transformers: 5.17.0
-- Attention implementation: SDPA
-- dtype: FP16
-- decoding: greedy (`do_sample=False`)
+```text
+Model: Qwen3-0.6B
+GPU: NVIDIA Tesla V100-SXM2 32 GB
+PyTorch: 2.14.0+cu126
+Transformers: 5.17.0
+Attention: SDPA
+dtype: FP16
+Decoding: greedy
+```
 
-## Наблюдение
+Проверялись DynamicCache, Offloaded Cache и Offloaded Static Cache.
 
-При использовании стандартного `model.generate()` стратегии
-DynamicCache и StaticCache дают идентичный и воспроизводимый output.
+## Исходное наблюдение
 
-Для Offloaded Cache:
+В стандартном `model.generate()`:
 
-- context=512: output совпадает с DynamicCache;
-- context=2048: output отличается и не воспроизводится между повторными запусками;
-- context=8192: output отличается и не воспроизводится между повторными запусками.
+```text
+context=512:
+offloaded output совпадает с Dynamic
 
-Таким образом, эффект воспроизводится не только в собственном decode loop,
-но и в стандартном Hugging Face `generate()`.
+context=2048:
+offloaded output расходится с Dynamic
+и меняется между повторными запусками
 
-## Ограничение интерпретации
+context=8192:
+наблюдается та же нестабильность
+```
 
-Пока нельзя утверждать, что это общий баг Transformers.
+DynamicCache и StaticCache при этом оставались детерминированными.
 
-Необходимо проверить:
+## Диагностика
 
-- другой attention backend;
-- принудительную синхронизацию CUDA;
-- Offloaded Static Cache;
-- при необходимости другую версию Transformers и другой тип GPU.
+Проведено по 5 greedy-запусков на конфигурацию.
 
-До завершения этих проверок performance-результаты Offloaded Cache
-не следует интерпретировать как корректное сравнение стратегий.
+### SDPA, Transformers 5.17.0
 
-## Результаты расширенной диагностики
+До 1536 токенов все стратегии стабильны и совпадают.
 
-Проведено по 5 повторных greedy-запусков для нескольких длин контекста.
+При 2048:
 
-### SDPA
+```text
+Dynamic: stable
+Offloaded: 5 разных outputs из 5
+Offloaded Static: unstable
+```
 
-До context=1536:
-
-- DynamicCache стабилен;
-- Offloaded Cache стабилен;
-- Offloaded Static Cache стабилен;
-- все outputs совпадают.
-
-При context=2048:
-
-- DynamicCache остаётся детерминированным;
-- Offloaded Cache: 5 различных outputs из 5 запусков;
-- Offloaded Static Cache также становится нестабильным.
-
-При context=4096:
-
-- обе offloaded-стратегии нестабильны во всех повторах.
+При 4096 обе offloaded-стратегии также нестабильны.
 
 ### Eager attention
 
-Проблема проявляется позже:
+```text
+context <= 2048: корректно
+context = 4096: offloaded-стратегии нестабильны
+```
 
-- context <= 2048: offloading работает корректно;
-- context=4096: Offloaded Cache и Offloaded Static Cache становятся нестабильными.
+Момент появления эффекта зависит от attention backend.
 
-Это показывает, что порог возникновения проблемы зависит от attention backend.
+### `CUDA_LAUNCH_BLOCKING=1`
 
-### CUDA_LAUNCH_BLOCKING=1
+При SDPA и принудительной CUDA synchronization все проверенные точки:
 
-При SDPA и принудительной синхронизации CUDA:
+```text
+512, 1024, 1536, 2048, 4096
+```
 
-- context=512 — корректно;
-- context=1024 — корректно;
-- context=1536 — корректно;
-- context=2048 — корректно;
-- context=4096 — корректно.
+дали одинаковый с DynamicCache output во всех пяти повторах.
 
-Во всех случаях Offloaded Cache и Offloaded Static Cache дают тот же output,
-что и DynamicCache, во всех пяти повторах.
+Это связывает наблюдение с asynchronous execution/synchronization, но не доказывает конкретный race condition внутри Transformers.
 
-## Предварительная интерпретация
+`CUDA_LAUNCH_BLOCKING=1` нельзя использовать для обычного performance benchmark, потому что он меняет режим CUDA execution.
 
-Результат указывает на проблему, связанную с асинхронным выполнением или
-синхронизацией при CPU↔GPU offloading.
+## Проверка development-версии Transformers
 
-Это пока не доказывает конкретный race condition внутри Transformers:
-необходимо проверить другую версию Transformers и, при необходимости,
-другой GPU / PyTorch.
+Дополнительная конфигурация:
 
-Важно: CUDA_LAUNCH_BLOCKING=1 нельзя использовать как обычный performance
-benchmark, поскольку он намеренно меняет режим исполнения CUDA и способен
-существенно ухудшить производительность.
+```text
+Transformers: 5.18.0.dev0
+commit: 5e4d6304de5536bc808187e5951f5e8794211229
+PyTorch: 2.14.0+cu126
+CUDA runtime: 12.6
+GPU: V100-SXM2 32 GB
+Attention: SDPA
+```
 
-## Проверка на Transformers main
+Результат:
 
-Дополнительно проведена проверка на development-версии Transformers:
+```text
+1536: все стратегии стабильны
+2048: все стратегии стабильны
+4096: обе offloaded-стратегии дают 5 разных outputs из 5
+```
 
-- Transformers: 5.18.0.dev0
-- commit: 5e4d6304de5536bc808187e5951f5e8794211229
-- PyTorch: 2.14.0+cu126
-- CUDA runtime PyTorch: 12.6
-- GPU: NVIDIA Tesla V100-SXM2 32 GB
-- attention backend: SDPA
-- остальные параметры эксперимента сохранены.
+Переход на протестированный development commit не устранил проблему полностью.
 
-### Результаты
+## Ограничение
 
-При context=1536:
+Все проверки выполнены на V100. A100/H100/H200 были недоступны этому аккаунту по политике Slurm, поэтому результат нельзя автоматически переносить на другие поколения GPU.
 
-- DynamicCache стабилен;
-- Offloaded Cache стабилен;
-- Offloaded Static Cache стабилен;
-- outputs совпадают.
-
-При context=2048:
-
-- все три стратегии дают одинаковый output;
-- каждый вариант воспроизводим во всех 5 повторах.
-
-При context=4096:
-
-- DynamicCache остаётся детерминированным;
-- Offloaded Cache даёт 5 различных outputs из 5 запусков;
-- Offloaded Static Cache даёт 5 различных outputs из 5 запусков;
-- offloaded outputs не совпадают с DynamicCache.
-
-### Интерпретация
-
-Переход с Transformers 5.17.0 на протестированный commit main
-не устраняет проблему полностью.
-
-На протестированных точках проблема при SDPA перестала проявляться
-на context=2048, но сохраняется на context=4096.
-
-Это не следует интерпретировать как точный фиксированный порог:
-при вероятной проблеме синхронизации момент возникновения ошибки
-может зависеть от timing, версии библиотек, attention backend и GPU.
-
-Ранее CUDA_LAUNCH_BLOCKING=1 полностью устранял расхождение вплоть
-до context=4096, что является дополнительным свидетельством связи
-проблемы с асинхронным выполнением.
-
-### Ограничение аппаратной проверки
-
-На кластере доступны следующие классы GPU-узлов:
-
-- type_a/type_b/type_c — NVIDIA V100;
-- type_e — NVIDIA A100;
-- type_f — NVIDIA H100;
-- type_h — NVIDIA H200.
-
-Для студенческого аккаунта запуск на type_e/type_f/type_h запрещён
-политикой Slurm. Поэтому проверить воспроизводимость обнаруженной
-аномалии Offloaded Cache на другом поколении GPU в рамках данного
-эксперимента не удалось.
-
-Все основные проверки корректности выполнены на NVIDIA Tesla
-V100-SXM2-32GB. Это ограничивает область применимости выводов:
-результаты не следует автоматически переносить на A100/H100/H200.
+Из-за обнаруженной нестабильности Offloaded Cache не используется как основной performance baseline финальной работы.

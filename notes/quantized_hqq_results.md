@@ -1,49 +1,49 @@
-# HQQ Quantized KV Cache
+# HQQ Quantized KV Cache: Qwen3-0.6B
+
+> Исторический HQQ performance/memory experiment. Для финального сравнения используются canonical таблицы из `results/summary/final/`.
 
 ## Конфигурация
 
-- модель: Qwen3-0.6B;
-- GPU: NVIDIA Tesla V100-SXM2 32 GB;
-- PyTorch: 2.14.0+cu126;
-- Transformers: 5.17.0;
-- backend: HQQ;
-- dtype модели: FP16;
-- output: 64 токена;
-- 5 повторов;
-- context: 2048–40895 токенов.
+```text
+Model: Qwen3-0.6B
+GPU: NVIDIA Tesla V100-SXM2 32 GB
+PyTorch: 2.14.0+cu126
+Transformers: 5.17.0
+Backend: HQQ
+Model dtype: FP16
+Output: 64 tokens
+Repeats: 5
+Contexts: 2048–40895
+```
 
-Сравнивались:
+Сравнивались DynamicCache FP16, HQQ INT4 и HQQ INT2.
 
-- DynamicCache FP16;
-- HQQ INT4 KV Cache;
-- HQQ INT2 KV Cache.
+## Физический размер KV Cache
 
-## Физическое сжатие KV Cache
+Относительно FP16 DynamicCache:
 
-DynamicCache точно совпал с теоретическим размером FP16 KV Cache.
+```text
+INT4: 28.125% storage -> 3.556x compression
+INT2: 15.625% storage -> 6.4x compression
+```
 
-Для INT4 физический KV Cache составлял 28.125% от FP16:
+Экономия физического KV storage:
 
-- экономия: 71.875%;
-- compression ratio: 3.556x.
+```text
+INT4: 71.875%
+INT2: 84.375%
+```
 
-Для INT2 физический KV Cache составлял 15.625% от FP16:
+Из измерений следует эффективная стоимость около:
 
-- экономия: 84.375%;
-- compression ratio: 6.4x.
+```text
+INT4: 4.5 bit/value
+INT2: 2.5 bit/value
+```
 
-Фактическая степень сжатия ниже идеальных 4x и 8x из-за
-metadata квантования.
+Разница с идеальными 4x/8x связана с quantization metadata.
 
-Из измерений следует эффективная стоимость примерно:
-
-- INT4: 4.5 bit/value;
-- INT2: 2.5 bit/value.
-
-## Влияние на общую GPU память
-
-Экономия общего peak allocated GPU memory возрастает с длиной
-контекста.
+## Total GPU memory
 
 | Context | INT4 saving | INT2 saving |
 |---:|---:|---:|
@@ -55,70 +55,38 @@ metadata квантования.
 | 32768 | 39.4% | 47.3% |
 | 40895 | 41.1% | 49.3% |
 
-На коротком контексте веса модели доминируют в memory footprint,
-поэтому сильное сжатие KV Cache даёт сравнительно небольшую
-экономию общей памяти.
-
-При росте контекста KV Cache становится всё большей частью общей
-GPU памяти, поэтому преимущество quantization увеличивается.
+На коротком контексте значительную часть памяти занимают веса модели; с ростом контекста доля KV Cache увеличивается, поэтому quantization сильнее влияет на total memory.
 
 ## Производительность
 
-Quantized KV Cache имеет существенный вычислительный overhead.
+В этом эксперименте HQQ quantization не ускоряет decode:
 
-INT4 замедляет decode приблизительно на 19–36% относительно
-Dynamic FP16 в исследованном диапазоне.
-
-INT2 замедляет decode приблизительно на 25–37%.
-
-На prefill относительный overhead особенно велик на коротких
-контекстах и уменьшается при росте context length.
+```text
+INT4 slowdown: примерно 19–36%
+INT2 slowdown: примерно 25–37%
+```
 
 На context=40895:
 
-- INT4 уменьшает total peak GPU memory на 41.1%, но увеличивает
-  end-to-end latency примерно на 69.7%;
-- INT2 уменьшает total peak GPU memory на 49.3%, но увеличивает
-  end-to-end latency примерно на 71.7%.
+```text
+INT4 total-memory saving: 41.1%
+INT4 end-to-end latency increase: ~69.7%
 
-## INT4 против INT2
+INT2 total-memory saving: 49.3%
+INT2 end-to-end latency increase: ~71.7%
+```
 
-На длинном контексте INT2 даёт существенную дополнительную
-экономию памяти относительно INT4.
+Физический KV storage на этой точке:
 
-При context=40895:
+```text
+INT4: ~1.229 GiB
+INT2: ~0.683 GiB
+```
 
-- INT4 KV: ~1.229 GiB;
-- INT2 KV: ~0.683 GiB.
+## Корректность и ограничение
 
-При этом дополнительная end-to-end latency INT2 относительно INT4
-на этой точке невелика.
+Повторы каждой пары context/cache были детерминированы по output hash, но quantized outputs отличались от Dynamic FP16. Само по себе это ожидаемо и не является quality metric.
 
-Следовательно, выбор между INT4 и INT2 определяется не только
-производительностью и памятью, но и влиянием более агрессивной
-квантизации на качество генерации.
+Поэтому performance/memory experiment был дополнен отдельным retrieval benchmark.
 
-## Корректность и качество
-
-Каждая пара context/cache была полностью воспроизводима между
-повторами: output hash внутри каждой группы был единственным.
-
-При этом output quantized cache отличается от Dynamic FP16.
-
-Это не является само по себе ошибкой, поскольку квантизация меняет
-K/V и logits, однако требует отдельного quality benchmark.
-
-## Ограничения
-
-Результаты относятся к конкретной конфигурации:
-
-- Qwen3-0.6B;
-- Tesla V100;
-- FP16;
-- HQQ;
-- batch size 1;
-- greedy decoding;
-- synthetic controlled prompt.
-
-Для проверки обобщаемости необходимо повторить representative
-точки на более крупных моделях и отдельно измерить качество.
+Результат относится к Qwen3-0.6B, V100, HQQ, FP16 model weights, batch size 1 и greedy decoding. Для итоговых выводов о качестве и model scaling используются более поздние эксперименты.
