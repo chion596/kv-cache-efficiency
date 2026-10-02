@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -48,6 +49,133 @@ def load_good(path):
         ].copy()
 
     return df
+
+
+def wilson_interval_counts(
+    successes,
+    n,
+    z=1.959963984540054,
+):
+    """
+    95% Wilson confidence interval
+    for a binomial proportion.
+
+    Возвращаем границы в процентах.
+    """
+
+    if n == 0:
+        return float("nan"), float("nan")
+
+    p = successes / n
+
+    denominator = (
+        1
+        + z ** 2 / n
+    )
+
+    center = (
+        p
+        + z ** 2 / (2 * n)
+    ) / denominator
+
+    half_width = (
+        z
+        * math.sqrt(
+            p * (1 - p) / n
+            + z ** 2 / (4 * n ** 2)
+        )
+        / denominator
+    )
+
+    low = max(
+        0.0,
+        center - half_width,
+    )
+
+    high = min(
+        1.0,
+        center + half_width,
+    )
+
+    return (
+        100 * low,
+        100 * high,
+    )
+
+
+def add_quality_uncertainty(df):
+    """
+    Добавляет:
+    - число exact-match successes;
+    - 95% Wilson CI для retrieval accuracy.
+    """
+
+    df = df.copy()
+
+    df["successes"] = (
+        (
+            df["retrieval_accuracy_pct"]
+            / 100
+            * df["n"]
+        )
+        .round()
+        .astype(int)
+    )
+
+    intervals = [
+        wilson_interval_counts(
+            int(successes),
+            int(n),
+        )
+        for successes, n
+        in zip(
+            df["successes"],
+            df["n"],
+        )
+    ]
+
+    df["retrieval_ci_low_pct"] = [
+        interval[0]
+        for interval in intervals
+    ]
+
+    df["retrieval_ci_high_pct"] = [
+        interval[1]
+        for interval in intervals
+    ]
+
+    # Сделаем порядок колонок более читаемым.
+    ordered_columns = []
+
+    for column in df.columns:
+
+        if column in {
+            "successes",
+            "retrieval_ci_low_pct",
+            "retrieval_ci_high_pct",
+        }:
+            continue
+
+        ordered_columns.append(
+            column
+        )
+
+        if column == "n":
+            ordered_columns.append(
+                "successes"
+            )
+
+        if column == "retrieval_accuracy_pct":
+            ordered_columns.extend(
+                [
+                    "retrieval_ci_low_pct",
+                    "retrieval_ci_high_pct",
+                ]
+            )
+
+    return df[
+        ordered_columns
+    ]
 
 
 # ============================================================
@@ -125,6 +253,11 @@ quality = (
     .drop(
         columns="_model_order"
     )
+)
+
+
+quality = add_quality_uncertainty(
+    quality
 )
 
 
@@ -235,6 +368,53 @@ performance = (
 )
 
 
+
+performance_std = (
+    performance_raw
+    .groupby(
+        [
+            "model_size",
+            "context_len",
+            "cache",
+        ],
+        as_index=False,
+    )
+    .agg(
+        prefill_sec_std=(
+            "prefill_sec",
+            "std",
+        ),
+
+        decode_tok_s_std=(
+            "decode_tok_s",
+            "std",
+        ),
+
+        e2e_sec_std=(
+            "e2e_sec",
+            "std",
+        ),
+
+        peak_gpu_gib_std=(
+            "total_peak_allocated_gib",
+            "std",
+        ),
+    )
+)
+
+
+performance = performance.merge(
+    performance_std,
+    on=[
+        "model_size",
+        "context_len",
+        "cache",
+    ],
+    how="left",
+    validate="one_to_one",
+)
+
+
 performance.to_csv(
     OUT / "model_scaling_performance.csv",
     index=False,
@@ -305,6 +485,11 @@ group_quality = pd.DataFrame(
         "cache",
         "group_size",
     ]
+)
+
+
+group_quality = add_quality_uncertainty(
+    group_quality
 )
 
 
@@ -391,6 +576,70 @@ group_performance = pd.DataFrame(
 )
 
 
+
+group_perf_std_rows = []
+
+
+for cache, group_size, path in GROUP_PERFORMANCE_FILES:
+
+    df = load_good(
+        path
+    )
+
+    df = df[
+        df["context_len"] == 40895
+    ].copy()
+
+    group_perf_std_rows.append(
+        {
+            "cache":
+                cache,
+
+            "group_size":
+                group_size,
+
+            "prefill_sec_std":
+                df[
+                    "prefill_sec"
+                ].std(),
+
+            "decode_tok_s_std":
+                df[
+                    "decode_tok_s"
+                ].std(),
+
+            "e2e_sec_std":
+                df[
+                    "e2e_sec"
+                ].std(),
+
+            "peak_gpu_gib_std":
+                df[
+                    "total_peak_allocated_gib"
+                ].std(),
+        }
+    )
+
+
+group_perf_std = pd.DataFrame(
+    group_perf_std_rows
+)
+
+
+group_performance = (
+    group_performance
+    .merge(
+        group_perf_std,
+        on=[
+            "cache",
+            "group_size",
+        ],
+        how="left",
+        validate="one_to_one",
+    )
+)
+
+
 group_performance.to_csv(
     OUT / "group_size_performance.csv",
     index=False,
@@ -442,6 +691,11 @@ short_context = (
             "cache",
         ]
     )
+)
+
+
+short_context = add_quality_uncertainty(
+    short_context
 )
 
 
@@ -584,6 +838,153 @@ for _, qrow in group_quality.iterrows():
 
 tradeoff = pd.DataFrame(
     tradeoff_rows
+)
+
+
+
+quality_meta_rows = [
+    {
+        "cache":
+            "dynamic",
+
+        "group_size":
+            0,
+
+        "quality_n":
+            int(
+                dynamic_quality[
+                    "n"
+                ]
+            ),
+
+        "quality_successes":
+            int(
+                dynamic_quality[
+                    "successes"
+                ]
+            ),
+
+        "retrieval_ci_low_pct":
+            dynamic_quality[
+                "retrieval_ci_low_pct"
+            ],
+
+        "retrieval_ci_high_pct":
+            dynamic_quality[
+                "retrieval_ci_high_pct"
+            ],
+
+        "tf_decode_top1_pct":
+            dynamic_quality[
+                "tf_decode_top1_pct"
+            ],
+
+        "tf_decode_nll":
+            dynamic_quality[
+                "tf_decode_nll"
+            ],
+    }
+]
+
+
+for _, row in group_quality.iterrows():
+
+    quality_meta_rows.append(
+        {
+            "cache":
+                row[
+                    "cache"
+                ],
+
+            "group_size":
+                int(
+                    row[
+                        "group_size"
+                    ]
+                ),
+
+            "quality_n":
+                int(
+                    row[
+                        "n"
+                    ]
+                ),
+
+            "quality_successes":
+                int(
+                    row[
+                        "successes"
+                    ]
+                ),
+
+            "retrieval_ci_low_pct":
+                row[
+                    "retrieval_ci_low_pct"
+                ],
+
+            "retrieval_ci_high_pct":
+                row[
+                    "retrieval_ci_high_pct"
+                ],
+
+            "tf_decode_top1_pct":
+                row[
+                    "tf_decode_top1_pct"
+                ],
+
+            "tf_decode_nll":
+                row[
+                    "tf_decode_nll"
+                ],
+        }
+    )
+
+
+quality_meta = pd.DataFrame(
+    quality_meta_rows
+)
+
+
+tradeoff = tradeoff.merge(
+    quality_meta,
+    on=[
+        "cache",
+        "group_size",
+    ],
+    how="left",
+    validate="one_to_one",
+)
+
+
+performance_meta = (
+    group_performance[
+        [
+            "cache",
+            "group_size",
+            "n",
+            "prefill_sec_std",
+            "decode_tok_s_std",
+            "e2e_sec_std",
+            "peak_gpu_gib_std",
+        ]
+    ]
+    .rename(
+        columns={
+            "n":
+                "perf_n",
+        }
+    )
+)
+
+
+tradeoff = tradeoff.merge(
+    performance_meta,
+    on=[
+        "cache",
+        "group_size",
+    ],
+    how="left",
+    validate="one_to_one",
 )
 
 
@@ -774,10 +1175,33 @@ for cache in [
         .reset_index()
     )
 
-    plt.plot(
+    y = sub[
+        "retrieval_accuracy_pct"
+    ]
+
+    yerr_low = (
+        y
+        - sub[
+            "retrieval_ci_low_pct"
+        ]
+    )
+
+    yerr_high = (
+        sub[
+            "retrieval_ci_high_pct"
+        ]
+        - y
+    )
+
+    plt.errorbar(
         x,
-        sub["retrieval_accuracy_pct"],
+        y,
+        yerr=[
+            yerr_low,
+            yerr_high,
+        ],
         marker="o",
+        capsize=4,
         label=cache,
     )
 
@@ -830,12 +1254,33 @@ int4_quality = (
     .sort_values("group_size")
 )
 
-plt.plot(
-    int4_quality["group_size"],
+int4_y = int4_quality[
+    "retrieval_accuracy_pct"
+]
+
+int4_yerr_low = (
+    int4_y
+    - int4_quality[
+        "retrieval_ci_low_pct"
+    ]
+)
+
+int4_yerr_high = (
     int4_quality[
-        "retrieval_accuracy_pct"
+        "retrieval_ci_high_pct"
+    ]
+    - int4_y
+)
+
+plt.errorbar(
+    int4_quality["group_size"],
+    int4_y,
+    yerr=[
+        int4_yerr_low,
+        int4_yerr_high,
     ],
     marker="o",
+    capsize=4,
 )
 
 plt.xticks(
@@ -877,32 +1322,141 @@ plt.close()
 # FIGURE 3: QUALITY VS TOTAL GPU MEMORY SAVING
 # ============================================================
 
-for _, row in tradeoff.iterrows():
+for cache in [
+    "dynamic",
+    "int8",
+    "int4",
+    "int2",
+]:
 
-    plt.scatter(
-        row["total_peak_saving_pct"],
-        row["retrieval_accuracy_pct"],
+    sub = (
+        tradeoff[
+            tradeoff["cache"]
+            == cache
+        ]
+        .sort_values(
+            "group_size"
+        )
     )
 
-    label = row["cache"]
+    if len(sub) == 0:
+        continue
 
-    if row["group_size"] != 0:
-        label += (
-            f" g{int(row['group_size'])}"
+    y = sub[
+        "retrieval_accuracy_pct"
+    ]
+
+    yerr_low = (
+        y
+        - sub[
+            "retrieval_ci_low_pct"
+        ]
+    )
+
+    yerr_high = (
+        sub[
+            "retrieval_ci_high_pct"
+        ]
+        - y
+    )
+
+    plt.errorbar(
+        sub[
+            "total_peak_saving_pct"
+        ],
+        y,
+        yerr=[
+            yerr_low,
+            yerr_high,
+        ],
+        fmt="o",
+        capsize=4,
+        linestyle="none",
+        label=cache,
+    )
+
+
+# Подписи показывают group size.
+# Цвет определяется cache / bit-width через legend.
+for _, row in tradeoff.iterrows():
+
+    cache = row[
+        "cache"
+    ]
+
+    group_size = int(
+        row[
+            "group_size"
+        ]
+    )
+
+    if cache == "dynamic":
+        label = "baseline"
+        offset = (
+            6,
+            6,
         )
 
-    if row["cache"] != "int2":
-
-        plt.annotate(
-            label,
-            (
-                row["total_peak_saving_pct"],
-                row["retrieval_accuracy_pct"],
-            ),
-            xytext=(5, 5),
-            textcoords="offset points",
-            fontsize=8,
+    elif cache == "int8":
+        label = (
+            f"g{group_size}"
         )
+        offset = (
+            6,
+            6,
+        )
+
+    elif cache == "int4":
+        label = (
+            f"g{group_size}"
+        )
+        offset = (
+            6,
+            6,
+        )
+
+    else:
+        label = (
+            f"g{group_size}"
+        )
+
+        # INT2 точки лежат близко друг к другу
+        # около y=0, поэтому немного разводим
+        # подписи по вертикали.
+        if group_size in [
+            16,
+            64,
+        ]:
+            offset = (
+                0,
+                -18,
+            )
+        else:
+            offset = (
+                0,
+                8,
+            )
+
+    plt.annotate(
+        label,
+        (
+            row[
+                "total_peak_saving_pct"
+            ],
+            row[
+                "retrieval_accuracy_pct"
+            ],
+        ),
+        xytext=offset,
+        textcoords="offset points",
+        fontsize=8,
+        ha=(
+            "center"
+            if cache == "int2"
+            else "left"
+        ),
+    )
+
 
 plt.xlabel(
     "Total peak GPU memory saving vs Dynamic, %"
@@ -917,13 +1471,17 @@ plt.title(
 )
 
 plt.ylim(
-    -5,
-    110,
+    -10,
+    112,
 )
 
 plt.grid(
     True,
     alpha=0.3,
+)
+
+plt.legend(
+    title="Cache"
 )
 
 plt.tight_layout()
@@ -934,6 +1492,7 @@ plt.savefig(
 )
 
 plt.close()
+
 
 performance17 = performance[
     performance["model_size"] == "1.7B"
@@ -1013,10 +1572,14 @@ for cache in [
         )
     )
 
-    plt.plot(
-        sub["context_len"],
-        sub["decode_tok_s"],
+    plt.errorbar(
+  	sub["context_len"],
+   	sub["decode_tok_s"],
+    	yerr=sub[
+    	    "decode_tok_s_std"
+  	],
         marker="o",
+        capsize=3,
         label=cache,
     )
 
