@@ -1,68 +1,16 @@
-# Технические детали экспериментальной методики
+# Технические детали методики
 
-Эта заметка фиксирует детали, которые легко потерять при сокращении README.
+## Quality benchmark
 
-## 1. Quality benchmark
-
-Основной quality benchmark реализован в:
+Скрипт:
 
 ```text
 src/bench_long_context_quality.py
 ```
 
-### Формат входа
+### Задача
 
-Используется raw text / raw token sequence.
-
-`apply_chat_template` не используется.
-
-Специальный chat-формат и отдельный Qwen3 thinking mode
-в benchmark не включаются.
-
-### Filler
-
-Контекст заполняется детерминированным synthetic natural-ish текстом.
-
-Пример структуры filler:
-
-```text
-Archive entry ...
-The ... near the ... was reviewed under section ...
-The routine note concerned ... and contained no special instructions.
-```
-
-Filler специально не содержит восьмизначных кодов,
-чтобы secret passkey оставался уникальной retrieval-целью.
-
-### Passkey
-
-Для каждой комбинации:
-
-```text
-seed
-context length
-position
-```
-
-генерируется детерминированный случайный восьмизначный код.
-
-Needle имеет форму:
-
-```text
-IMPORTANT MEMORY RECORD
-The secret access code is XXXXXXXX.
-Remember this exact eight-digit code.
-END IMPORTANT MEMORY RECORD
-```
-
-После контекста добавляется прямой вопрос:
-
-```text
-What is the secret access code from the IMPORTANT MEMORY RECORD?
-Reply with only the eight digits of the code, with no spaces or punctuation.
-```
-
-### Position
+В детерминированный synthetic filler вставляется уникальный восьмизначный passkey. После контекста модель должна вернуть только восемь цифр.
 
 Needle вставляется примерно на:
 
@@ -73,6 +21,13 @@ Needle вставляется примерно на:
 ```
 
 длины body.
+
+Prompts формируются как raw text/raw tokens:
+
+- `apply_chat_template` не используется;
+- отдельный Qwen3 thinking mode не включается.
+
+Filler не содержит других восьмизначных кодов.
 
 ### Метрики
 
@@ -89,57 +44,59 @@ tf_top1_decode_pct
 tf_nll_decode
 ```
 
-Teacher-forced decode metrics не используют первый target token
-как основной сигнал quantized-cache quality.
+Teacher-forced decode metrics оценивают последующие target tokens; первый target token не используется как основной сигнал качества quantized cache.
 
----
-
-## 2. Размер выборки quality
+### Размер выборки
 
 Model-size experiment:
 
 ```text
-Qwen3-0.6B: n = 90
-Qwen3-1.7B: n = 45
-Qwen3-4B:   n = 45
-Qwen3-8B:   n = 45
-Qwen3-14B:  n = 45
+Qwen3-0.6B: n=90
+Qwen3-1.7B: n=45
+Qwen3-4B:   n=45
+Qwen3-8B:   n=45
+Qwen3-14B:  n=45
 ```
 
 Group-size ablation:
 
 ```text
-n = 45 на конфигурацию
+n=45 на конфигурацию
 ```
 
 Short-context control:
 
 ```text
-n = 30 на cache/context configuration
+n=30 на cache/context
 ```
 
-Для exact retrieval финальный анализ использует
-95% Wilson confidence intervals.
+Для exact-match рассчитываются 95% интервалы Уилсона.
 
----
+## Performance benchmark
 
-## 3. Performance benchmark
-
-Основной benchmark реализован в:
+Скрипт:
 
 ```text
 src/bench_quantized_prefill_decode.py
 ```
 
+Измеряются:
+
+- prefill time;
+- decode throughput;
+- end-to-end time;
+- peak allocated GPU memory;
+- физический размер KV Cache.
+
 ### Peak GPU memory
 
-Перед измерением используется:
+Перед измерением вызывается:
 
 ```python
 torch.cuda.reset_peak_memory_stats()
 ```
 
-Peak allocated GPU memory считывается через:
+Peak memory считывается через:
 
 ```python
 torch.cuda.max_memory_allocated()
@@ -147,23 +104,15 @@ torch.cuda.max_memory_allocated()
 
 ### Physical KV storage
 
-Размер cache считается отдельно по реальным tensor storages.
+Размер cache считается по фактическим tensor storages.
 
-Для DynamicCache учитываются:
+Для DynamicCache учитываются K/V tensors.
 
-```text
-keys
-values
-```
+Для HQQ QuantizedCache учитываются:
 
-Для HQQ QuantizedCache также учитываются:
-
-```text
-_quantized_keys
-_quantized_values
-quantization metadata
-residual FP16 cache
-```
+- quantized K/V;
+- quantization metadata;
+- residual FP16 K/V.
 
 Повторно используемые storages дедуплицируются по data pointer.
 
@@ -172,35 +121,23 @@ residual FP16 cache
 Model-scaling performance:
 
 ```text
-Qwen3-0.6B: 5 repeats
-Qwen3-1.7B: 3 repeats
-Qwen3-4B:   3 repeats
-Qwen3-8B:   3 repeats
+Qwen3-0.6B: 5
+Qwen3-1.7B: 3
+Qwen3-4B:   3
+Qwen3-8B:   3
 ```
 
 Final Qwen3-1.7B group-size ablation:
 
 ```text
-3 repeats на context/configuration
+3 повтора на context/configuration
 ```
 
-Для финального анализа сохраняются mean и sample standard deviation.
+В финальных таблицах сохраняются mean и sample standard deviation.
 
-### Attention implementation
+## HQQ configuration
 
-Benchmark явно не задаёт `attn_implementation`.
-
-Поэтому в отчёте нельзя утверждать,
-что была принудительно выбрана конкретная реализация attention.
-
-Использовалась реализация, автоматически выбранная
-Transformers/PyTorch для данного software/hardware stack.
-
----
-
-## 4. Конфигурация QuantizedCache
-
-В основной серии экспериментов использовался HQQ backend:
+Основная конфигурация:
 
 ```text
 backend = hqq
@@ -210,7 +147,7 @@ q_group_size = 64
 residual_length = 128
 ```
 
-В group-size ablation на Qwen3-1.7B менялся только:
+В group-size ablation на Qwen3-1.7B меняется только:
 
 ```text
 q_group_size = 16, 32, 64, 128
@@ -218,87 +155,45 @@ q_group_size = 16, 32, 64, 128
 
 для INT4 и INT2.
 
-INT8 использовался как reference configuration при:
+INT8 используется как reference при `q_group_size=64`.
 
-```text
-q_group_size = 64
-```
+`axis_key` и `axis_value` не входят в основную экспериментальную матрицу.
 
-Изменение `axis_key` и `axis_value` не входило в основную
-экспериментальную матрицу. Это оставлено как возможное направление
-отдельного исследования асимметричной квантизации Keys и Values.
+## Attention implementation
 
----
+`attn_implementation` явно не задаётся. Используется реализация, выбранная Transformers/PyTorch для данного software/hardware stack.
 
-## 5. Что считается canonical final output
+Поэтому отчёт не приписывает результаты конкретному attention backend, если он не был отдельно зафиксирован в диагностическом эксперименте.
 
-Финальные агрегированные таблицы создаются:
+## Canonical final output
+
+Финальный анализ:
 
 ```text
 src/analyze_final.py
 ```
 
-и сохраняются в:
+Canonical таблицы:
 
 ```text
 results/summary/final/
 ```
 
-Основные файлы:
+Для Qwen3-1.7B quality-memory-latency сравнения основной источник:
 
 ```text
-model_scaling_quality.csv
-model_scaling_performance.csv
-group_size_quality.csv
-group_size_performance.csv
-short_context_control.csv
 memory_latency_tradeoff.csv
 ```
 
-Для финального Qwen3-1.7B quality-memory-latency сравнения
-canonical источником чисел является:
+Для графиков memory/decode vs context:
 
 ```text
-results/summary/final/memory_latency_tradeoff.csv
+qwen17_final_context_performance.csv
 ```
 
-Именно из него должны браться итоговые значения
-для Dynamic, INT8, INT4 и INT2 при контексте 40895.
+## Ограничения
 
----
-
-## 6. Statistical reporting
-
-Для бинарной метрики retrieval exact-match указываются:
-
-```text
-successes / n
-accuracy, %
-95% Wilson confidence interval
-```
-
-Для performance указываются:
-
-```text
-mean
-sample standard deviation
-n
-```
-
-Это позволяет отделить реальные различия между конфигурациями
-от разброса между повторами.
-
----
-
-## 7. Ограничения методики
-
-Quality benchmark является контролируемой synthetic retrieval-задачей
-и не заменяет широкий long-context benchmark.
-
-Основные performance-результаты относятся к NVIDIA V100
-и конкретному software stack.
-
-Qwen3-14B использовалась только в quality scaling,
-поскольку для неё потребовалось две V100,
-и её performance нельзя напрямую сравнивать с 1-GPU результатами
-для моделей 0.6B–8B.
+- Quality benchmark — controlled synthetic retrieval, а не широкий long-context benchmark.
+- Основные performance-результаты относятся к NVIDIA V100 и batch size 1.
+- Qwen3-14B использована только в quality scaling на двух V100.
+- Интервалы Уилсона описывают uncertainty внутри benchmark trials и не доказывают перенос результатов на другие задачи или модели.
