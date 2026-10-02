@@ -58,12 +58,12 @@ def main():
 
     parser.add_argument(
         "--summary-dir",
-        default="results/summary",
+        default="results/summary/baseline",
     )
 
     parser.add_argument(
         "--plots-dir",
-        default="plots",
+        default="plots/baseline",
     )
 
     args = parser.parse_args()
